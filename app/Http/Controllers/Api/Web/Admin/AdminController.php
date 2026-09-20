@@ -370,6 +370,7 @@ class AdminController extends Controller
             500
         );
     }
+}
 
     // ==================== CANDIDATE MANAGEMENT ====================
 
