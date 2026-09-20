@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use App\Services\NotificationService;
 use App\Services\FaceRecognitionService;
 use Illuminate\Support\Facades\Vite;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
