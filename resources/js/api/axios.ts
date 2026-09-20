@@ -5,7 +5,7 @@ import axios, {
     AxiosError,
 } from "axios";
 
-const API_URL: string = "https://occelection-api-web-production.up.railway.app/api/web";
+const API_URL: string = "http://localhost:8000/api/web";
 
 const axiosInstance: AxiosInstance = axios.create({
     baseURL: API_URL,
