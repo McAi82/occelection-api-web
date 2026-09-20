@@ -7,6 +7,10 @@ use App\Services\NotificationService;
 use App\Services\FaceRecognitionService;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\DB;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
