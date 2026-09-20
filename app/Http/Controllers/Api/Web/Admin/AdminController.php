@@ -316,69 +316,60 @@ class AdminController extends Controller
 
     public function importVoters(Request $request)
 {
-    try {
-        $validator = Validator::make($request->all(), [
-            'election_id' => 'required|exists:elections,election_id',
-            'file'        => 'required|file|mimes:xlsx,csv,xls|max:10240',
-        ]);
+    $validator = Validator::make($request->all(), [
+        'election_id' => 'required|exists:elections,election_id',
+        'file'        => 'required|file|mimes:xlsx,csv,xls|max:20480',
+    ]);
 
-        if ($validator->fails()) {
-            return $this->validationErrorResponse($validator->errors());
+    if ($validator->fails()) {
+        return $this->validationErrorResponse($validator->errors());
+    }
+
+    try {
+        // Save the uploaded file to local disk
+        $path = $request->file('file')->store('imports');
+
+        if (!$path) {
+            return $this->errorResponse('Failed to store uploaded file.', 500);
         }
 
-        $import = new VotersImport($request->election_id);
-        Excel::import($import, $request->file('file'));
+        // Dispatch the import as a background job
+        \App\Jobs\ImportVotersJob::dispatch(
+            (int) $request->election_id,
+            (int) $request->user()->user_id,
+            $path,
+        );
 
-        $createdCount  = $import->getImportedCount();
-        $updatedCount  = $import->getUpdatedCount();
-        $registeredCount = $import->getRegisteredCount();
-        $skippedRows   = $import->getSkippedRows();
-
+        // Audit log immediately (records the intent, not the result)
         $this->logAction(
             $request->user()->user_id,
-            'IMPORT_VOTERS',
+            'QUEUE_IMPORT_VOTERS',
             'voter_registries',
             null,
             null,
             [
-                'created'    => $createdCount,
-                'updated'    => $updatedCount,
-                'registered' => $registeredCount,
-                'skipped'    => count($skippedRows),
+                'election_id' => $request->election_id,
+                'file'        => $path,
             ],
             $request->ip()
         );
 
-        // Build summary message
-        $message = "Successfully imported voters: ";
-        $parts = [];
-        if ($createdCount > 0) $parts[] = "{$createdCount} new user(s) created";
-        if ($updatedCount > 0) $parts[] = "{$updatedCount} existing user(s) updated";
-        if ($registeredCount > 0) $parts[] = "{$registeredCount} voter(s) registered for this election";
-        $message .= implode(', ', $parts);
-
-        if (count($skippedRows) > 0) {
-            $message .= '. ' . count($skippedRows) . ' row(s) skipped.';
-        }
-
-        $this->notifyVotersImported($request->election_id, $registeredCount);
-
-        return $this->successResponse([
-            'imported_count'   => $createdCount,
-            'updated_count'    => $updatedCount,
-            'registered_count' => $registeredCount,
-            'skipped_rows'     => $skippedRows,
-            'errors'           => [], // for backward compat with frontend
-        ], $message);
-    } catch (\Exception $e) {
-        Log::error('Import failed: ' . $e->getMessage());
-        Log::error($e->getTraceAsString());
+        return $this->successResponse(
+            [
+                'queued'      => true,
+                'file'        => $path,
+                'election_id' => $request->election_id,
+            ],
+            'Import queued. You will be notified when it finishes.',
+            202
+        );
+    } catch (\Throwable $e) {
+        Log::error('Failed to queue voter import: ' . $e->getMessage());
         return $this->errorResponse(
-            'Failed to import voters: ' . $e->getMessage(),
+            'Failed to queue import: ' . $e->getMessage(),
             500
         );
     }
-}
 
     // ==================== CANDIDATE MANAGEMENT ====================
 
