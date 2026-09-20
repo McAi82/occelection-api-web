@@ -190,8 +190,4 @@ class VotersImport implements ToCollection, WithHeadingRow, WithChunkReading
     public function getUpdatedCount(): int    { return $this->updatedCount; }
     public function getRegisteredCount(): int { return $this->registeredCount; }
     public function getSkippedRows(): array   { return $this->skippedRows; }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 01f5d3ea9574930e23037cbf8fc488f3f4e9b870
