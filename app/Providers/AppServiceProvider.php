@@ -19,9 +19,10 @@ class AppServiceProvider extends ServiceProvider
             return new FaceRecognitionService();
         });
     }
-
     public function boot(): void
     {
         Vite::prefetch(concurrency: 3);
+        $this->configureDefaults();
+        $this->forceHttpsInProduction(); // 👈 added
     }
 }
