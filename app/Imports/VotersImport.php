@@ -5,33 +5,24 @@ namespace App\Imports;
 
 use App\Models\User;
 use App\Models\Course;
-use App\Models\Election;
 use App\Models\VoterRegistry;
-use App\Models\AuditLog;
-use Maatwebsite\Excel\Concerns\ToModel;
+use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
-use Maatwebsite\Excel\Concerns\WithValidation;
-use Maatwebsite\Excel\Concerns\SkipsOnFailure;
-use Maatwebsite\Excel\Concerns\SkipsFailures;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 
-class VotersImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithChunkReading
+class VotersImport implements ToCollection, WithHeadingRow, WithChunkReading
 {
-    use SkipsFailures;
-
     protected int $electionId;
     protected int $importedCount = 0;
     protected int $updatedCount = 0;
     protected int $registeredCount = 0;
     protected array $skippedRows = [];
+    protected ?array $courseLookup = null;
 
-    /**
-     * Department code → Course code mapping
-     * Matches the registrar's CSV format
-     */
+    /** Department code → Course code mapping (registrar format) */
     protected array $departmentMap = [
         'CIT' => 'BSIT',
         'CBA' => 'BSBA',
@@ -43,13 +34,118 @@ class VotersImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithChunk
         $this->electionId = $electionId;
     }
 
-    /**
-     * Process each row from the CSV
-     * Expected headers: id_number, last_name, first_name, middle_name, email, department
-     */
-    public function model(array $row)
+    public function chunkSize(): int
     {
-        // ✅ Normalize headers (Laravel Excel converts "ID Number" → "id_number")
+        return 500;
+    }
+
+    public function collection(Collection $rows): void
+    {
+        if ($rows->isEmpty()) return;
+
+        // 1. Cache courses once
+        if ($this->courseLookup === null) {
+            $this->courseLookup = Course::pluck('course_id', 'course_code')->toArray();
+        }
+
+        // 2. Parse + validate
+        $normalized = [];
+        $studentIds = [];
+        foreach ($rows as $row) {
+            $parsed = $this->parseRow($row);
+            if ($parsed === null) continue;
+            $normalized[] = $parsed;
+            $studentIds[] = $parsed['student_id'];
+        }
+        if (empty($normalized)) return;
+
+        // 3. Bulk lookup existing users
+        $existing = User::whereIn('student_id', $studentIds)
+            ->get(['user_id', 'student_id'])
+            ->keyBy('student_id')
+            ->toArray();
+
+        // 4. Split new vs existing
+        $toInsert = [];
+        $toUpdate = [];
+        $now = now();
+
+        foreach ($normalized as $r) {
+            if (isset($existing[$r['student_id']])) {
+                $toUpdate[] = [
+                    'user_id'    => $existing[$r['student_id']]['user_id'],
+                    'first_name' => $r['first_name'],
+                    'last_name'  => $r['last_name'],
+                    'email'      => $r['email'],
+                    'course_id'  => $r['course_id'],
+                ];
+            } else {
+                $toInsert[] = [
+                    'student_id'    => $r['student_id'],
+                    'first_name'    => $r['first_name'],
+                    'last_name'     => $r['last_name'],
+                    'email'         => $r['email'],
+                    'password_hash' => Hash::make($r['student_id']),
+                    'course_id'     => $r['course_id'],
+                    'year_level'    => null,
+                    'role'          => 'voter',
+                    'is_active'     => true,
+                    'created_at'    => $now,
+                    'updated_at'    => $now,
+                ];
+            }
+        }
+
+        // 5. Bulk insert new users
+        if (!empty($toInsert)) {
+            foreach (array_chunk($toInsert, 200) as $chunk) {
+                User::insert($chunk);
+            }
+            $this->importedCount += count($toInsert);
+        }
+
+        // 6. Bulk update existing users (in chunks)
+        if (!empty($toUpdate)) {
+            DB::transaction(function () use ($toUpdate) {
+                foreach ($toUpdate as $u) {
+                    User::where('user_id', $u['user_id'])->update([
+                        'first_name' => $u['first_name'],
+                        'last_name'  => $u['last_name'],
+                        'email'      => $u['email'],
+                        'course_id'  => $u['course_id'],
+                    ]);
+                }
+            });
+            $this->updatedCount += count($toUpdate);
+        }
+
+        // 7. Fetch user_ids for registry
+        $allIds = User::whereIn('student_id', $studentIds)
+            ->pluck('user_id', 'student_id')
+            ->toArray();
+
+        // 8. Bulk insert registries (ignore duplicates)
+        $registries = [];
+        foreach ($allIds as $userId) {
+            $registries[] = [
+                'election_id'       => $this->electionId,
+                'user_id'           => $userId,
+                'has_voted'         => false,
+                'sanction_eligible' => false,
+                'created_at'        => $now,
+                'updated_at'        => $now,
+            ];
+        }
+
+        if (!empty($registries)) {
+            foreach (array_chunk($registries, 500) as $chunk) {
+                $this->registeredCount += VoterRegistry::insertOrIgnore($chunk);
+            }
+        }
+    }
+
+    private function parseRow($row): ?array
+    {
         $studentId  = trim($row['id_number'] ?? '');
         $lastName   = trim($row['last_name'] ?? '');
         $firstName  = trim($row['first_name'] ?? '');
@@ -57,149 +153,41 @@ class VotersImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithChunk
         $email      = strtolower(trim($row['email'] ?? ''));
         $department = strtoupper(trim($row['department'] ?? ''));
 
-        // Skip rows missing critical fields
         if (empty($studentId) || empty($firstName) || empty($lastName) || empty($email)) {
-            $this->skippedRows[] = "Missing required fields for: {$studentId}";
+            $this->skippedRows[] = "Missing fields for: {$studentId}";
             return null;
         }
 
-        // Validate email format
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $this->skippedRows[] = "Invalid email format: {$email} (student: {$studentId})";
-            return null;
-        }
-
-        // Clean up middle name (null strings, dashes, etc.)
-        $middleName = $this->cleanMiddleName($middleName);
-
-        // Map department to course
-        $courseId = $this->mapDepartmentToCourse($department);
-
-        // Find or create the user
-        $user = User::where('student_id', $studentId)->first();
-        $isNewUser = false;
-
-        if ($user) {
-            // ✅ UPDATE existing user
-            $user->update([
-                'first_name' => $firstName,
-                'last_name'  => $lastName,
-                'email'      => $email,
-                'course_id'  => $courseId ?? $user->course_id,
-            ]);
-            $this->updatedCount++;
-        } else {
-            // ✅ CREATE new user
-            $user = User::create([
-                'student_id'    => $studentId,
-                'first_name'    => $firstName,
-                'last_name'     => $lastName,
-                'email'         => $email,
-                'password_hash' => Hash::make($studentId), // Default password = student_id
-                'course_id'     => $courseId,
-                'year_level'    => null, // User will fill in their profile
-                'role'          => 'voter',
-                'is_active'     => true,
-            ]);
-            $isNewUser = true;
-            $this->importedCount++;
-        }
-
-        // ✅ Register voter for the election
-        $voterRegistry = VoterRegistry::firstOrCreate(
-            [
-                'election_id' => $this->electionId,
-                'user_id'     => $user->user_id,
-            ],
-            [
-                'has_voted'         => false,
-                'sanction_eligible' => false,
-            ]
-        );
-
-        if ($voterRegistry->wasRecentlyCreated) {
-            $this->registeredCount++;
-        }
-
-        // Log the action
-        AuditLog::create([
-            'user_id'      => auth()->id() ?? 1,
-            'action_type'  => $isNewUser ? 'IMPORT_VOTER_CREATE' : 'IMPORT_VOTER_UPDATE',
-            'target_table' => 'users',
-            'target_id'    => $user->user_id,
-            'new_value'    => json_encode([
-                'student_id' => $studentId,
-                'email'      => $email,
-                'election_id'=> $this->electionId,
-            ]),
-            'ip_address'   => request()->ip(),
-        ]);
-
-        return null; // We handle persistence manually
-    }
-
-    /**
-     * Clean up middle name values like "NULL", "N/A", "-", ""
-     */
-    private function cleanMiddleName(string $middleName): ?string
-    {
-        $value = strtoupper(trim($middleName));
-
-        if (
-            empty($value) ||
-            in_array($value, ['NULL', 'N/A', 'NA', 'NONE', '-', '--'])
-        ) {
-            return null;
-        }
-
-        return $middleName;
-    }
-
-    /**
-     * Map department code to a course ID
-     * Returns null if no matching course found
-     */
-    private function mapDepartmentToCourse(string $department): ?int
-    {
-        if (empty($department)) {
+            $this->skippedRows[] = "Invalid email: {$email} (student: {$studentId})";
             return null;
         }
 
         $courseCode = $this->departmentMap[$department] ?? $department;
+        $courseId   = $this->courseLookup[$courseCode] ?? null;
 
-        $course = Course::where('course_code', $courseCode)->first();
+        return [
+            'student_id'  => $studentId,
+            'first_name'  => $firstName,
+            'last_name'   => $lastName,
+            'middle_name' => $this->cleanMiddleName($middleName),
+            'email'       => $email,
+            'course_id'   => $courseId,
+        ];
+    }
 
-        if (!$course) {
-            Log::warning("Course not found for department: {$department} (mapped to {$courseCode})");
+    private function cleanMiddleName(string $middleName): ?string
+    {
+        $value = strtoupper(trim($middleName));
+        if (empty($value) || in_array($value, ['NULL', 'N/A', 'NA', 'NONE', '-', '--'])) {
             return null;
         }
-
-        return $course->course_id;
+        return $middleName;
     }
 
-    public function chunkSize(): int
-    {
-        return 200;
-    }
-
-    // ─── Public getters for the controller ──────────────────────────────
-    public function getImportedCount(): int
-    {
-        return $this->importedCount;
-    }
-
-    public function getUpdatedCount(): int
-    {
-        return $this->updatedCount;
-    }
-
-    public function getRegisteredCount(): int
-    {
-        return $this->registeredCount;
-    }
-
-    public function getSkippedRows(): array
-    {
-        return $this->skippedRows;
-    }
+    // ---------- Getters ----------
+    public function getImportedCount(): int   { return $this->importedCount; }
+    public function getUpdatedCount(): int    { return $this->updatedCount; }
+    public function getRegisteredCount(): int { return $this->registeredCount; }
+    public function getSkippedRows(): array   { return $this->skippedRows; }
 }
