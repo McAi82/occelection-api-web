@@ -20,10 +20,35 @@ class AppServiceProvider extends ServiceProvider
             return new FaceRecognitionService();
         });
     }
+    
+    protected function configureDefaults(): void
+    {
+        Date::use(CarbonImmutable::class);
+
+        DB::prohibitDestructiveCommands(
+            app()->isProduction(),
+        );
+
+        Password::defaults(fn (): ?Password => app()->isProduction()
+            ? Password::min(12)
+                ->mixedCase()
+                ->letters()
+                ->numbers()
+                ->symbols()
+                ->uncompromised()
+            : null,
+        );
+    }
+    protected function forceHttpsInProduction(): void
+    {
+        if (app()->isProduction()) {
+            URL::forceScheme('https');
+        }
+    }
     public function boot(): void
     {
         Vite::prefetch(concurrency: 3);
         $this->configureDefaults();
-        $this->forceHttpsInProduction(); // 👈 added
+        $this->forceHttpsInProduction(); 
     }
 }
