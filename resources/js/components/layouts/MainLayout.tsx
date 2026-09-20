@@ -781,7 +781,7 @@ const MainLayout: React.FC = () => {
         if (!path) return null;
         if (path.startsWith("http")) return path;
         if (path.startsWith("/storage")) return path;
-        return `http://localhost:8000${path}`;
+        return `https://occelection-api-web-production.up.railway.app${path}`;
     };
 
     const getRoleLabel = (): string => {
