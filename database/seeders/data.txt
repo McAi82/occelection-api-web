@@ -1,0 +1,1053 @@
+
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Carbon\Carbon;
+
+class DatabaseSeeder extends Seeder
+{
+    /**
+     * Run the database seeds.
+     */
+    public function run(): void
+    {
+        $this->command->info('==========================================');
+        $this->command->info('Starting OCC Election System Database Seeder');
+        $this->command->info('==========================================');
+
+        // ==================== 1. CREATE COURSES ====================
+        $this->command->info("\n📚 Creating courses...");
+
+        $courses = [
+            ['course_code' => 'BSIT', 'course_name' => 'Bachelor of Science in Information Technology', 'department' => 'College of Computing'],
+            ['course_code' => 'BEED', 'course_name' => 'Bachelor of Elementary Education', 'department' => 'College of Education'],
+            ['course_code' => 'BSBA', 'course_name' => 'Bachelor of Science in Business Administration', 'department' => 'College of Business'],
+        ];
+
+        $courseIds = [];
+        foreach ($courses as $course) {
+            $id = DB::table('courses')->insertGetId([
+                'course_code' => $course['course_code'],
+                'course_name' => $course['course_name'],
+                'department' => $course['department'],
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $courseIds[$course['course_code']] = $id;
+            $this->command->info("   ✓ Created {$course['course_code']}");
+        }
+
+        // ==================== 2. CREATE COURSE SECTIONS ====================
+        $this->command->info("\n📖 Creating course sections...");
+
+        $sections = ['A', 'B'];
+        $yearLevels = [1, 2, 3, 4];
+
+        $sectionIds = [];
+        $sectionCounter = 0;
+
+        foreach ($courseIds as $courseCode => $courseId) {
+            foreach ($yearLevels as $yearLevel) {
+                foreach ($sections as $section) {
+                    $sectionCounter++;
+                    $sectionId = DB::table('course_sections')->insertGetId([
+                        'course_id' => $courseId,
+                        'section_code' => $section,
+                        'section_name' => "Section {$section}",
+                        'year_level' => $yearLevel,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    $sectionIds["{$courseCode}-Y{$yearLevel}-{$section}"] = $sectionId;
+                }
+            }
+        }
+
+        $this->command->info("   ✓ Created {$sectionCounter} sections (3 courses × 4 years × 2 sections = 24 sections)");
+
+        // ==================== 3. CREATE USERS ====================
+        $this->command->info("\n👥 Creating users...");
+
+        $usedStudentIds = [];
+
+        $generateUniqueStudentId = function ($prefix, $counter, &$usedStudentIds) {
+            $studentId = $prefix . str_pad($counter, 3, '0', STR_PAD_LEFT);
+            while (in_array($studentId, $usedStudentIds)) {
+                $counter++;
+                $studentId = $prefix . str_pad($counter, 3, '0', STR_PAD_LEFT);
+            }
+            $usedStudentIds[] = $studentId;
+            return $studentId;
+        };
+
+        // 3.1 Admin User
+        $adminId = DB::table('users')->insertGetId([
+            'email' => 'admin@occelection.com',
+            'password_hash' => Hash::make('admin123'),
+            'first_name' => 'System',
+            'last_name' => 'Admin',
+            'student_id' => 'ADMIN001',
+            'course_id' => $courseIds['BSIT'],
+            'section_id' => $sectionIds['BSIT-Y1-A'],
+            'year_level' => null,
+            'role' => 'admin',
+            'is_active' => true,
+            'email_verified_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $usedStudentIds[] = 'ADMIN001';
+        $this->command->info("   ✓ Created Admin (1)");
+
+        // 3.2 COMELEC Users
+        $comelecUsers = [
+            ['email' => 'comelec@occelection.com', 'first_name' => 'Juan', 'last_name' => 'Dela Cruz', 'course' => 'BSIT', 'section' => 'A', 'year' => 3],
+            ['email' => 'comelec2@occelection.com', 'first_name' => 'Maria', 'last_name' => 'Santos', 'course' => 'BSBA', 'section' => 'B', 'year' => 3],
+        ];
+
+        $counter = 1;
+        foreach ($comelecUsers as $user) {
+            $studentId = $generateUniqueStudentId('COM', $counter, $usedStudentIds);
+            DB::table('users')->insert([
+                'email' => $user['email'],
+                'password_hash' => Hash::make('comelec123'),
+                'first_name' => $user['first_name'],
+                'last_name' => $user['last_name'],
+                'student_id' => $studentId,
+                'course_id' => $courseIds[$user['course']],
+                'section_id' => $sectionIds["{$user['course']}-Y{$user['year']}-{$user['section']}"],
+                'year_level' => $user['year'],
+                'role' => 'comelec',
+                'is_active' => true,
+                'email_verified_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $counter++;
+        }
+        $this->command->info("   ✓ Created COMELEC users (2)");
+
+        // 3.3 Voter Users (50 TOTAL including candidates)
+        $this->command->info("\n👥 Creating 50 voter/candidate users...");
+
+        $firstNames = [
+            'John',
+            'Jane',
+            'Michael',
+            'Sarah',
+            'David',
+            'Emma',
+            'James',
+            'Sophia',
+            'Robert',
+            'Olivia',
+            'William',
+            'Ava',
+            'Joseph',
+            'Mia',
+            'Thomas',
+            'Charlotte',
+            'Daniel',
+            'Amelia',
+            'Matthew',
+            'Harper',
+            'Christopher',
+            'Evelyn',
+            'Andrew',
+            'Abigail',
+            'Joshua',
+            'Emily',
+            'Kevin',
+            'Elizabeth',
+            'Brian',
+            'Samantha',
+            'Jason',
+            'Victoria',
+            'Ryan',
+            'Madison',
+            'Nicholas',
+            'Chloe',
+            'Eric',
+            'Grace',
+            'Tyler',
+            'Lily',
+            'Brandon',
+            'Zoe',
+            'Dylan',
+            'Natalie',
+            'Cameron',
+            'Hannah',
+            'Justin',
+            'Alyssa',
+            'Nathan',
+            'Julia'
+        ];
+
+        $lastNames = [
+            'Smith',
+            'Johnson',
+            'Williams',
+            'Brown',
+            'Jones',
+            'Garcia',
+            'Miller',
+            'Davis',
+            'Rodriguez',
+            'Martinez',
+            'Hernandez',
+            'Lopez',
+            'Gonzalez',
+            'Wilson',
+            'Anderson',
+            'Thomas',
+            'Taylor',
+            'Moore',
+            'Jackson',
+            'Martin',
+            'Lee',
+            'Perez',
+            'Thompson',
+            'White',
+            'Harris',
+            'Sanchez',
+            'Clark',
+            'Ramirez',
+            'Lewis',
+            'Robinson',
+            'Walker',
+            'Young',
+            'Allen',
+            'King',
+            'Wright',
+            'Scott',
+            'Torres',
+            'Nguyen',
+            'Hill',
+            'Flores',
+            'Green',
+            'Adams',
+            'Nelson',
+            'Baker',
+            'Hall',
+            'Rivera',
+            'Campbell',
+            'Mitchell',
+            'Carter',
+            'Roberts'
+        ];
+
+        $allUserIds = [];
+        $globalCounter = 1;
+
+        // Distribution: 50 users across 3 courses
+        // BSIT: 18 users (including candidates)
+        // BSBA: 17 users (including candidates)
+        // BEED: 15 users (including candidates)
+        $courseDistribution = [
+            'BSIT' => 18,
+            'BSBA' => 17,
+            'BEED' => 15,
+        ];
+
+        foreach ($courseDistribution as $courseCode => $count) {
+            for ($i = 1; $i <= $count; $i++) {
+                $yearLevel = $yearLevels[array_rand($yearLevels)];
+                $section = $sections[array_rand($sections)];
+
+                $firstName = $firstNames[array_rand($firstNames)];
+                $lastName = $lastNames[array_rand($lastNames)];
+
+                $studentId = strtoupper(substr($courseCode, 0, 2)) . $yearLevel . $section . str_pad($globalCounter, 2, '0', STR_PAD_LEFT);
+
+                while (in_array($studentId, $usedStudentIds)) {
+                    $globalCounter++;
+                    $studentId = strtoupper(substr($courseCode, 0, 2)) . $yearLevel . $section . str_pad($globalCounter, 2, '0', STR_PAD_LEFT);
+                }
+                $usedStudentIds[] = $studentId;
+
+                $emailBase = strtolower($firstName . '.' . $lastName . $globalCounter);
+                $email = $emailBase . '@occ.edu.ph';
+                $emailCounter = 1;
+                while (DB::table('users')->where('email', $email)->exists()) {
+                    $email = $emailBase . $emailCounter . '@occ.edu.ph';
+                    $emailCounter++;
+                }
+
+                // Determine role: some users are candidates (we'll create candidate users separately)
+                // For now, create as voter
+                $id = DB::table('users')->insertGetId([
+                    'email' => $email,
+                    'password_hash' => Hash::make('voter123'),
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'student_id' => $studentId,
+                    'course_id' => $courseIds[$courseCode],
+                    'section_id' => $sectionIds["{$courseCode}-Y{$yearLevel}-{$section}"],
+                    'year_level' => $yearLevel,
+                    'role' => 'voter',
+                    'is_active' => true,
+                    'email_verified_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $allUserIds[] = $id;
+                $globalCounter++;
+            }
+        }
+
+        $totalVoters = count($allUserIds);
+        $this->command->info("   ✓ Created {$totalVoters} voter users");
+
+        // ==================== 3.4 CREATE CANDIDATE USERS ====================
+        $this->command->info("\n👤 Creating candidate users (will be converted from existing voters)...");
+
+        // Select some existing users to become candidates
+        // We'll pick users from each course to become candidates
+        $candidateUserIds = [];
+
+        // Get BSIT users
+        $bsitUsers = DB::table('users')
+            ->where('course_id', $courseIds['BSIT'])
+            ->where('role', 'voter')
+            ->limit(8)
+            ->pluck('user_id')
+            ->toArray();
+
+        // Get BSBA users  
+        $bsbaUsers = DB::table('users')
+            ->where('course_id', $courseIds['BSBA'])
+            ->where('role', 'voter')
+            ->limit(6)
+            ->pluck('user_id')
+            ->toArray();
+
+        // Get BEED users
+        $beedUsers = DB::table('users')
+            ->where('course_id', $courseIds['BEED'])
+            ->where('role', 'voter')
+            ->limit(6)
+            ->pluck('user_id')
+            ->toArray();
+
+        // Combine all candidate user IDs
+        $candidateUserIds = array_merge($bsitUsers, $bsbaUsers, $beedUsers);
+
+        // Update their roles to 'candidate'
+        foreach ($candidateUserIds as $userId) {
+            DB::table('users')
+                ->where('user_id', $userId)
+                ->update(['role' => 'candidate']);
+        }
+
+        $this->command->info("   ✓ Created " . count($candidateUserIds) . " candidate users from existing voters");
+
+        $totalUsers = 1 + 2 + $totalVoters;
+        $this->command->info("   ✓ TOTAL USERS: {$totalUsers} (1 Admin + 2 COMELEC + 50 Voters/Candidates)");
+        $this->command->info("   ✓ Candidates: " . count($candidateUserIds) . " users promoted to candidate role");
+
+        // ==================== 4. CREATE ELECTIONS ====================
+        $this->command->info("\n🗳️ Creating elections...");
+
+        $now = Carbon::now();
+        $currentYear = $now->year;
+
+        $elections = [
+            [
+                'title' => 'CSG General Election ' . $currentYear,
+                'election_type' => 'CSG',
+                'year' => $currentYear,
+                'description' => 'Central Student Government General Election for all students.',
+                'voting_start' => $now->copy()->startOfDay(),
+                'voting_end' => $now->copy()->endOfDay()->addDays(5),
+                'created_by_user_id' => $adminId,
+                'course_id' => null,
+                'is_active' => true,
+            ],
+            [
+                'title' => 'BSIT SBO Election ' . $currentYear,
+                'election_type' => 'SBO',
+                'year' => $currentYear,
+                'description' => 'BSIT Student Body Organization Election for IT students.',
+                'voting_start' => $now->copy()->addDays(7)->startOfDay(),
+                'voting_end' => $now->copy()->addDays(8)->endOfDay(),
+                'created_by_user_id' => $adminId,
+                'course_id' => $courseIds['BSIT'],
+                'is_active' => true,
+            ],
+            [
+                'title' => 'BSBA SBO Election ' . $currentYear,
+                'election_type' => 'SBO',
+                'year' => $currentYear,
+                'description' => 'BSBA Student Body Organization Election for Business students.',
+                'voting_start' => $now->copy()->addDays(7)->startOfDay(),
+                'voting_end' => $now->copy()->addDays(8)->endOfDay(),
+                'created_by_user_id' => $adminId,
+                'course_id' => $courseIds['BSBA'],
+                'is_active' => true,
+            ],
+            // BEED SBO Election
+            [
+                'title' => 'BEED SBO Election ' . $currentYear,
+                'election_type' => 'SBO',
+                'year' => $currentYear,
+                'description' => 'BEED Student Body Organization Election for Education students.',
+                'voting_start' => $now->copy()->addDays(7)->startOfDay(),
+                'voting_end' => $now->copy()->addDays(8)->endOfDay(),
+                'created_by_user_id' => $adminId,
+                'course_id' => $courseIds['BEED'],
+                'is_active' => true,
+            ],
+        ];
+
+        $electionIds = [];
+        foreach ($elections as $election) {
+            $id = DB::table('elections')->insertGetId([
+                'title' => $election['title'],
+                'election_type' => $election['election_type'],
+                'year' => $election['year'],
+                'description' => $election['description'],
+                'voting_start' => $election['voting_start'],
+                'voting_end' => $election['voting_end'],
+                'created_by_user_id' => $election['created_by_user_id'],
+                'course_id' => $election['course_id'],
+                'is_active' => $election['is_active'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $electionIds[$election['title']] = $id;
+            $this->command->info("   ✓ Created: {$election['title']} (Year: {$election['year']})");
+        }
+
+        // ==================== 5. CREATE POSITIONS ====================
+        $this->command->info("\n📋 Creating positions...");
+
+        // All 13 CSG Positions
+        $csgPositions = [
+            ['title' => 'CSG President', 'category' => 'Executive', 'order' => 1, 'max_winners' => 1, 'position_type' => 'executive'],
+            ['title' => 'CSG Vice President', 'category' => 'Executive', 'order' => 2, 'max_winners' => 1, 'position_type' => 'executive'],
+            ['title' => 'General Secretary', 'category' => 'Secretariat', 'order' => 3, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Secretary of Budget and Finance', 'category' => 'Secretariat', 'order' => 4, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Secretary of Sports', 'category' => 'Secretariat', 'order' => 5, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Secretary of Press and Publication', 'category' => 'Secretariat', 'order' => 6, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Secretary of External Affairs', 'category' => 'Secretariat', 'order' => 7, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Senate President Chair on Budget and Appropriation', 'category' => 'Senate', 'order' => 8, 'max_winners' => 1, 'position_type' => 'senator'],
+            ['title' => 'Senator Chair on Publication', 'category' => 'Senate', 'order' => 9, 'max_winners' => 1, 'position_type' => 'senator'],
+            ['title' => 'Senator Chair on Cultural Music and Arts', 'category' => 'Senate', 'order' => 10, 'max_winners' => 1, 'position_type' => 'senator'],
+            ['title' => 'Senator Chair on Sports', 'category' => 'Senate', 'order' => 11, 'max_winners' => 1, 'position_type' => 'senator'],
+            ['title' => 'Senator Chair on Literary', 'category' => 'Senate', 'order' => 12, 'max_winners' => 1, 'position_type' => 'senator'],
+            ['title' => 'Senator Chair on Student\'s Welfare and Environment', 'category' => 'Senate', 'order' => 13, 'max_winners' => 1, 'position_type' => 'senator'],
+        ];
+
+        // SBO Positions (5 per course)
+        $sboPositions = [
+            ['title' => 'Governor', 'category' => 'Executive', 'order' => 1, 'max_winners' => 1, 'position_type' => 'executive'],
+            ['title' => 'Vice Governor', 'category' => 'Executive', 'order' => 2, 'max_winners' => 1, 'position_type' => 'executive'],
+            ['title' => 'Secretary', 'category' => 'Secretariat', 'order' => 3, 'max_winners' => 1, 'position_type' => 'secretary'],
+            ['title' => 'Treasurer', 'category' => 'Finance', 'order' => 4, 'max_winners' => 1, 'position_type' => 'finance'],
+            ['title' => 'Auditor', 'category' => 'Finance', 'order' => 5, 'max_winners' => 1, 'position_type' => 'finance'],
+        ];
+
+        $allPositions = [];
+        $positionIds = [];
+
+        // CSG Positions
+        foreach ($csgPositions as $pos) {
+            $allPositions[] = [
+                'election_title' => 'CSG General Election ' . $currentYear,
+                'title' => $pos['title'],
+                'category' => $pos['category'],
+                'order' => $pos['order'],
+                'max_winners' => $pos['max_winners'],
+                'position_type' => $pos['position_type'],
+            ];
+        }
+
+        // BSIT SBO Positions
+        foreach ($sboPositions as $pos) {
+            $allPositions[] = [
+                'election_title' => 'BSIT SBO Election ' . $currentYear,
+                'title' => $pos['title'],
+                'category' => $pos['category'],
+                'order' => $pos['order'],
+                'max_winners' => $pos['max_winners'],
+                'position_type' => $pos['position_type'],
+            ];
+        }
+
+        // BSBA SBO Positions
+        foreach ($sboPositions as $pos) {
+            $allPositions[] = [
+                'election_title' => 'BSBA SBO Election ' . $currentYear,
+                'title' => $pos['title'],
+                'category' => $pos['category'],
+                'order' => $pos['order'],
+                'max_winners' => $pos['max_winners'],
+                'position_type' => $pos['position_type'],
+            ];
+        }
+
+        // BEED SBO Positions
+        foreach ($sboPositions as $pos) {
+            $allPositions[] = [
+                'election_title' => 'BEED SBO Election ' . $currentYear,
+                'title' => $pos['title'],
+                'category' => $pos['category'],
+                'order' => $pos['order'],
+                'max_winners' => $pos['max_winners'],
+                'position_type' => $pos['position_type'],
+            ];
+        }
+
+        foreach ($allPositions as $pos) {
+            $electionId = $electionIds[$pos['election_title']];
+            $id = DB::table('positions')->insertGetId([
+                'election_id' => $electionId,
+                'title' => $pos['title'],
+                'category' => $pos['category'],
+                'order_in_ballot' => $pos['order'],
+                'max_winners' => $pos['max_winners'],
+                'position_type' => $pos['position_type'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $positionIds[$pos['election_title']][$pos['title']] = $id;
+        }
+        $this->command->info("   ✓ Created " . count($allPositions) . " positions (13 CSG + 5 BSIT SBO + 5 BSBA SBO + 5 BEED SBO)");
+
+        // ==================== 6. CREATE PARTYLISTS ====================
+        $this->command->info("\n🎭 Creating partylists...");
+
+        $partylistsData = [
+            // CSG Partylists
+            ['election_title' => 'CSG General Election ' . $currentYear, 'name' => 'Bagong Sigla', 'description' => 'New energy for student governance.', 'platform' => 'Innovation, transparency, and student welfare'],
+            ['election_title' => 'CSG General Election ' . $currentYear, 'name' => 'Sama-Sama', 'description' => 'Unity and progress for all.', 'platform' => 'Unity, inclusivity, and academic excellence'],
+            ['election_title' => 'CSG General Election ' . $currentYear, 'name' => 'Aksyon', 'description' => 'Action-driven leadership.', 'platform' => 'Proactive solutions and student empowerment'],
+            ['election_title' => 'CSG General Election ' . $currentYear, 'name' => 'Pagbabago', 'description' => 'Change for a better future.', 'platform' => 'Reform, innovation, and progress'],
+
+            // BSIT SBO Partylists
+            ['election_title' => 'BSIT SBO Election ' . $currentYear, 'name' => 'Tech Leaders', 'description' => 'Leading BSIT to excellence.', 'platform' => 'Tech innovation and student development'],
+            ['election_title' => 'BSIT SBO Election ' . $currentYear, 'name' => 'Code for Change', 'description' => 'Innovation through technology.', 'platform' => 'Coding skills and career preparation'],
+            ['election_title' => 'BSIT SBO Election ' . $currentYear, 'name' => 'IT Innovators', 'description' => 'Driving IT excellence.', 'platform' => 'Innovation, collaboration, and success'],
+
+            // BSBA SBO Partylists
+            ['election_title' => 'BSBA SBO Election ' . $currentYear, 'name' => 'Business Visionaries', 'description' => 'Shaping future business leaders.', 'platform' => 'Entrepreneurship and industry connections'],
+            ['election_title' => 'BSBA SBO Election ' . $currentYear, 'name' => 'Empower Biz', 'description' => 'Empowering business students.', 'platform' => 'Financial literacy and leadership'],
+            ['election_title' => 'BSBA SBO Election ' . $currentYear, 'name' => 'Future Executives', 'description' => 'Building tomorrow\'s business leaders.', 'platform' => 'Professional development and career readiness'],
+
+            // BEED SBO Partylists
+            ['election_title' => 'BEED SBO Election ' . $currentYear, 'name' => 'Future Educators', 'description' => 'Building future educators for tomorrow.', 'platform' => 'Academic excellence and teacher development'],
+            ['election_title' => 'BEED SBO Election ' . $currentYear, 'name' => 'Teach Lead', 'description' => 'Leading the next generation of teachers.', 'platform' => 'Innovation in education and student support'],
+            ['election_title' => 'BEED SBO Election ' . $currentYear, 'name' => 'EduVision', 'description' => 'Vision for excellence in education.', 'platform' => 'Empowering future teachers through collaboration'],
+        ];
+
+        $partylistIds = [];
+        foreach ($partylistsData as $pl) {
+            $electionId = $electionIds[$pl['election_title']];
+            $id = DB::table('partylists')->insertGetId([
+                'election_id' => $electionId,
+                'name' => $pl['name'],
+                'description' => $pl['description'],
+                'platform' => $pl['platform'],
+                'created_by_user_id' => $adminId,
+                'approved_by_user_id' => $adminId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $partylistIds[$pl['election_title']][$pl['name']] = $id;
+        }
+        $this->command->info("   ✓ Created " . count($partylistsData) . " partylists for " . $currentYear);
+
+        // ==================== 7. REGISTER VOTERS ====================
+        $this->command->info("\n📝 Registering voters for each election...");
+
+        // Get all voter users (including candidates)
+        $allVoterIds = DB::table('users')
+            ->whereIn('role', ['voter', 'candidate'])
+            ->pluck('user_id')
+            ->toArray();
+
+        $this->command->info("   Total voters/candidates to register: " . count($allVoterIds));
+
+        foreach ($electionIds as $electionTitle => $electionId) {
+            $election = DB::table('elections')->where('election_id', $electionId)->first();
+            $registeredCount = 0;
+
+            foreach ($allVoterIds as $voterId) {
+                $voter = DB::table('users')->where('user_id', $voterId)->first();
+
+                $isEligible = true;
+
+                // For SBO elections, only voters from that course can register
+                if ($election->election_type === 'SBO' && $election->course_id) {
+                    $isEligible = ($voter->course_id == $election->course_id);
+                }
+
+                if ($isEligible) {
+                    $exists = DB::table('voter_registries')
+                        ->where('election_id', $electionId)
+                        ->where('user_id', $voterId)
+                        ->exists();
+
+                    if (!$exists) {
+                        DB::table('voter_registries')->insert([
+                            'election_id' => $electionId,
+                            'user_id' => $voterId,
+                            'has_voted' => false,
+                            'sanction_eligible' => false,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                        $registeredCount++;
+                    }
+                }
+            }
+            $this->command->info("   ✓ Registered {$registeredCount} voters for: {$electionTitle}");
+        }
+
+        // ==================== 8. CREATE CANDIDATES ====================
+        $this->command->info("\n🗳️ Creating candidates...");
+
+        // Get candidate users by course
+        $bsitCandidates = DB::table('users')
+            ->where('course_id', $courseIds['BSIT'])
+            ->where('role', 'candidate')
+            ->pluck('user_id')
+            ->toArray();
+
+        $bsbaCandidates = DB::table('users')
+            ->where('course_id', $courseIds['BSBA'])
+            ->where('role', 'candidate')
+            ->pluck('user_id')
+            ->toArray();
+
+        $beedCandidates = DB::table('users')
+            ->where('course_id', $courseIds['BEED'])
+            ->where('role', 'candidate')
+            ->pluck('user_id')
+            ->toArray();
+
+        // CSG Candidates (using candidates from all courses)
+        $csgCandidates = [];
+
+        // President - 2 candidates
+        if (count($bsitCandidates) >= 2) {
+            $csgCandidates[] = [
+                'user_id' => $bsitCandidates[0],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['CSG President'],
+                'platform' => 'A platform for change and progress. I will focus on student welfare, transparency, and academic excellence.',
+                'qualifications' => 'Former class president, dean\'s lister, and active student leader with 3 years of service.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Bagong Sigla'],
+            ];
+            $csgCandidates[] = [
+                'user_id' => $bsitCandidates[1],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['CSG President'],
+                'platform' => 'Unity and inclusivity for all students. I will work to create a better learning environment for everyone.',
+                'qualifications' => 'Student council officer, volunteer leader, and active community organizer.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Sama-Sama'],
+            ];
+        }
+
+        // Vice President - 2 candidates
+        if (count($bsbaCandidates) >= 2) {
+            $csgCandidates[] = [
+                'user_id' => $bsbaCandidates[0],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['CSG Vice President'],
+                'platform' => 'Supporting the president\'s vision while ensuring student voices are heard.',
+                'qualifications' => 'Student leader with 2 years of experience in student government.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Aksyon'],
+            ];
+            $csgCandidates[] = [
+                'user_id' => $bsbaCandidates[1],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['CSG Vice President'],
+                'platform' => 'Empowering students through effective leadership and representation.',
+                'qualifications' => 'Former student council secretary and active advocate for student rights.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Pagbabago'],
+            ];
+        }
+
+        // General Secretary - 2 candidates
+        if (count($beedCandidates) >= 2) {
+            $csgCandidates[] = [
+                'user_id' => $beedCandidates[0],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['General Secretary'],
+                'platform' => 'Transparency and efficiency in student government operations.',
+                'qualifications' => 'Former class secretary with excellent organizational skills.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Bagong Sigla'],
+            ];
+            $csgCandidates[] = [
+                'user_id' => $beedCandidates[1],
+                'election_id' => $electionIds['CSG General Election ' . $currentYear],
+                'position_id' => $positionIds['CSG General Election ' . $currentYear]['General Secretary'],
+                'platform' => 'Improving communication and documentation for student government.',
+                'qualifications' => 'Student leader with experience in administrative roles.',
+                'partylist_id' => $partylistIds['CSG General Election ' . $currentYear]['Sama-Sama'],
+            ];
+        }
+
+        // ==================== BSIT SBO Candidates ====================
+        $bsitSboCandidates = [];
+        $bsitCandidateCount = count($bsitCandidates);
+
+        if ($bsitCandidateCount >= 4) {
+            // Governor
+            $bsitSboCandidates[] = [
+                'user_id' => $bsitCandidates[0],
+                'election_id' => $electionIds['BSIT SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSIT SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Leading BSIT to excellence through innovation and collaboration.',
+                'qualifications' => 'IT student leader with experience in project management.',
+                'partylist_id' => $partylistIds['BSIT SBO Election ' . $currentYear]['Tech Leaders'],
+            ];
+            $bsitSboCandidates[] = [
+                'user_id' => $bsitCandidates[1],
+                'election_id' => $electionIds['BSIT SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSIT SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Empowering IT students with skills for the future.',
+                'qualifications' => 'Active member of IT organizations and student leader.',
+                'partylist_id' => $partylistIds['BSIT SBO Election ' . $currentYear]['Code for Change'],
+            ];
+
+            // Vice Governor
+            $bsitSboCandidates[] = [
+                'user_id' => $bsitCandidates[2],
+                'election_id' => $electionIds['BSIT SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSIT SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Supporting student initiatives and fostering a strong IT community.',
+                'qualifications' => 'Student leader with passion for technology and innovation.',
+                'partylist_id' => $partylistIds['BSIT SBO Election ' . $currentYear]['IT Innovators'],
+            ];
+            $bsitSboCandidates[] = [
+                'user_id' => $bsitCandidates[3],
+                'election_id' => $electionIds['BSIT SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSIT SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Building bridges between students and administration.',
+                'qualifications' => 'Former class officer with strong leadership skills.',
+                'partylist_id' => $partylistIds['BSIT SBO Election ' . $currentYear]['Tech Leaders'],
+            ];
+
+            // Secretary
+            if ($bsitCandidateCount >= 5) {
+                $bsitSboCandidates[] = [
+                    'user_id' => $bsitCandidates[4],
+                    'election_id' => $electionIds['BSIT SBO Election ' . $currentYear],
+                    'position_id' => $positionIds['BSIT SBO Election ' . $currentYear]['Secretary'],
+                    'platform' => 'Efficient documentation and communication for student government.',
+                    'qualifications' => 'Excellent organizational and writing skills.',
+                    'partylist_id' => $partylistIds['BSIT SBO Election ' . $currentYear]['Code for Change'],
+                ];
+            }
+        }
+
+        // ==================== BSBA SBO Candidates ====================
+        $bsbaSboCandidates = [];
+        $bsbaCandidateCount = count($bsbaCandidates);
+
+        if ($bsbaCandidateCount >= 4) {
+            // Governor
+            $bsbaSboCandidates[] = [
+                'user_id' => $bsbaCandidates[0],
+                'election_id' => $electionIds['BSBA SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSBA SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Building future business leaders through innovation and collaboration.',
+                'qualifications' => 'Business student leader with experience in entrepreneurship.',
+                'partylist_id' => $partylistIds['BSBA SBO Election ' . $currentYear]['Business Visionaries'],
+            ];
+            $bsbaSboCandidates[] = [
+                'user_id' => $bsbaCandidates[1],
+                'election_id' => $electionIds['BSBA SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSBA SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Empowering business students with skills for the corporate world.',
+                'qualifications' => 'Active member of business organizations and student leader.',
+                'partylist_id' => $partylistIds['BSBA SBO Election ' . $currentYear]['Empower Biz'],
+            ];
+
+            // Vice Governor
+            $bsbaSboCandidates[] = [
+                'user_id' => $bsbaCandidates[2],
+                'election_id' => $electionIds['BSBA SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSBA SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Supporting student growth and fostering a strong business community.',
+                'qualifications' => 'Student leader with passion for business and leadership.',
+                'partylist_id' => $partylistIds['BSBA SBO Election ' . $currentYear]['Future Executives'],
+            ];
+            $bsbaSboCandidates[] = [
+                'user_id' => $bsbaCandidates[3],
+                'election_id' => $electionIds['BSBA SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BSBA SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Building connections between students and the business world.',
+                'qualifications' => 'Former class officer with strong leadership skills.',
+                'partylist_id' => $partylistIds['BSBA SBO Election ' . $currentYear]['Business Visionaries'],
+            ];
+
+            // Secretary
+            if ($bsbaCandidateCount >= 5) {
+                $bsbaSboCandidates[] = [
+                    'user_id' => $bsbaCandidates[4],
+                    'election_id' => $electionIds['BSBA SBO Election ' . $currentYear],
+                    'position_id' => $positionIds['BSBA SBO Election ' . $currentYear]['Secretary'],
+                    'platform' => 'Effective communication and documentation for student government.',
+                    'qualifications' => 'Excellent organizational and administrative skills.',
+                    'partylist_id' => $partylistIds['BSBA SBO Election ' . $currentYear]['Empower Biz'],
+                ];
+            }
+        }
+
+        // ==================== BEED SBO Candidates ====================
+        $beedSboCandidates = [];
+        $beedCandidateCount = count($beedCandidates);
+
+        if ($beedCandidateCount >= 4) {
+            // Governor
+            $beedSboCandidates[] = [
+                'user_id' => $beedCandidates[0],
+                'election_id' => $electionIds['BEED SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BEED SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Leading the future of education through innovation and collaboration.',
+                'qualifications' => 'Education student leader with passion for teaching.',
+                'partylist_id' => $partylistIds['BEED SBO Election ' . $currentYear]['Future Educators'],
+            ];
+            $beedSboCandidates[] = [
+                'user_id' => $beedCandidates[1],
+                'election_id' => $electionIds['BEED SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BEED SBO Election ' . $currentYear]['Governor'],
+                'platform' => 'Empowering future teachers with skills for the classroom.',
+                'qualifications' => 'Active member of education organizations and student leader.',
+                'partylist_id' => $partylistIds['BEED SBO Election ' . $currentYear]['Teach Lead'],
+            ];
+
+            // Vice Governor
+            $beedSboCandidates[] = [
+                'user_id' => $beedCandidates[2],
+                'election_id' => $electionIds['BEED SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BEED SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Supporting student growth and fostering a strong education community.',
+                'qualifications' => 'Student leader with passion for education and leadership.',
+                'partylist_id' => $partylistIds['BEED SBO Election ' . $currentYear]['EduVision'],
+            ];
+            $beedSboCandidates[] = [
+                'user_id' => $beedCandidates[3],
+                'election_id' => $electionIds['BEED SBO Election ' . $currentYear],
+                'position_id' => $positionIds['BEED SBO Election ' . $currentYear]['Vice Governor'],
+                'platform' => 'Building connections between students and the education community.',
+                'qualifications' => 'Former class officer with strong leadership skills.',
+                'partylist_id' => $partylistIds['BEED SBO Election ' . $currentYear]['Future Educators'],
+            ];
+
+            // Secretary
+            if ($beedCandidateCount >= 5) {
+                $beedSboCandidates[] = [
+                    'user_id' => $beedCandidates[4],
+                    'election_id' => $electionIds['BEED SBO Election ' . $currentYear],
+                    'position_id' => $positionIds['BEED SBO Election ' . $currentYear]['Secretary'],
+                    'platform' => 'Effective communication and documentation for student government.',
+                    'qualifications' => 'Excellent organizational and administrative skills.',
+                    'partylist_id' => $partylistIds['BEED SBO Election ' . $currentYear]['Teach Lead'],
+                ];
+            }
+        }
+
+        $allCandidates = array_merge($csgCandidates, $bsitSboCandidates, $bsbaSboCandidates, $beedSboCandidates);
+        $candidateIds = [];
+
+        foreach ($allCandidates as $candidate) {
+            $id = DB::table('candidates')->insertGetId([
+                'user_id' => $candidate['user_id'],
+                'election_id' => $candidate['election_id'],
+                'position_id' => $candidate['position_id'],
+                'platform' => $candidate['platform'],
+                'qualifications' => $candidate['qualifications'],
+                'photo_url' => null,
+                'is_approved' => true,
+                'approved_by_user_id' => $adminId,
+                'approved_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $candidateIds[] = $id;
+        }
+        $this->command->info("   ✓ Created " . count($allCandidates) . " candidates");
+
+        // ==================== 8.1 CREATE PARTYLIST MEMBERSHIPS ====================
+        $this->command->info("\n🔗 Creating partylist memberships...");
+
+        $membershipCount = 0;
+        foreach ($allCandidates as $candidate) {
+            if (isset($candidate['partylist_id']) && $candidate['partylist_id']) {
+                $candidateRecord = DB::table('candidates')
+                    ->where('user_id', $candidate['user_id'])
+                    ->where('election_id', $candidate['election_id'])
+                    ->first();
+
+                if ($candidateRecord) {
+                    DB::table('partylist_memberships')->insert([
+                        'partylist_id' => $candidate['partylist_id'],
+                        'candidate_id' => $candidateRecord->candidate_id,
+                        'status' => 'approved',
+                        'approved_at' => now(),
+                        'approved_by_user_id' => $adminId,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    $membershipCount++;
+                }
+            }
+        }
+        $this->command->info("   ✓ Created {$membershipCount} partylist memberships");
+
+        // ==================== 9. CREATE FEEDBACK CATEGORIES ====================
+        $this->command->info("\n💬 Creating feedback categories...");
+
+        $categories = [
+            ['name' => 'Website Experience', 'description' => 'Feedback about the website usability and design', 'order' => 1],
+            ['name' => 'Voting Process', 'description' => 'Feedback about the voting experience', 'order' => 2],
+            ['name' => 'Candidate Information', 'description' => 'Feedback about candidate details and platforms', 'order' => 3],
+            ['name' => 'Overall Satisfaction', 'description' => 'General feedback about the election', 'order' => 4],
+        ];
+
+        $categoryIds = [];
+        foreach ($categories as $cat) {
+            $id = DB::table('feedback_categories')->insertGetId([
+                'category_name' => $cat['name'],
+                'description' => $cat['description'],
+                'display_order' => $cat['order'],
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $categoryIds[] = $id;
+        }
+        $this->command->info("   ✓ Created " . count($categories) . " feedback categories");
+
+        // ==================== 10. CREATE LIVE COMMENTS ====================
+        $this->command->info("\n💬 Creating live comments...");
+
+        $sampleComments = [
+            'Great election!',
+            'Good luck to all candidates!',
+            'Easy voting process!',
+            'Very organized election.',
+            'Proud to vote!',
+            'Transparent and fair!',
+            'More power to the organizers!',
+            'Excited for the results!',
+            'Best election system ever!',
+            'I love the new voting system!',
+            'Smooth and hassle-free voting.',
+            'Kudos to all candidates!',
+            'Vote wisely!',
+            'Excited for the new leaders!',
+            'Thank you for this opportunity!'
+        ];
+
+        $commentCount = 0;
+
+        foreach ($electionIds as $electionId) {
+            $voters = DB::table('voter_registries')
+                ->where('election_id', $electionId)
+                ->pluck('user_id')
+                ->toArray();
+
+            $selectedVoters = array_slice($voters, 0, min(15, count($voters)));
+
+            foreach ($selectedVoters as $userId) {
+                DB::table('live_comments')->insert([
+                    'election_id' => $electionId,
+                    'user_id' => $userId,
+                    'comment_text' => $sampleComments[array_rand($sampleComments)],
+                    'is_visible' => true,
+                    'created_at' => now()->subMinutes(rand(1, 120)),
+                    'updated_at' => now(),
+                ]);
+                $commentCount++;
+            }
+        }
+        $this->command->info("   ✓ Created {$commentCount} live comments");
+
+        // ==================== 11. CREATE AUDIT LOGS ====================
+        $this->command->info("\n📜 Creating audit logs...");
+
+        $actionTypes = ['LOGIN', 'REGISTER', 'CREATE_ELECTION', 'REGISTER_VOTER', 'APPROVE_CANDIDATE', 'VOTE_CAST'];
+        $logCount = 0;
+
+        $allUserIds = array_merge([$adminId], $allVoterIds);
+        $electionIdValues = array_values($electionIds);
+
+        for ($i = 0; $i < 30; $i++) {
+            $userId = $allUserIds[array_rand($allUserIds)];
+            $electionId = $electionIdValues[array_rand($electionIdValues)];
+            $actionType = $actionTypes[array_rand($actionTypes)];
+
+            DB::table('audit_logs')->insert([
+                'user_id' => $userId,
+                'action_type' => $actionType,
+                'target_table' => 'elections',
+                'target_id' => $electionId,
+                'ip_address' => '127.0.0.1',
+                'user_agent' => 'Mozilla/5.0 (Seeder)',
+                'timestamp' => now()->subDays(rand(1, 10))->subHours(rand(1, 23)),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $logCount++;
+        }
+        $this->command->info("   ✓ Created {$logCount} audit logs");
+
+        // ==================== 12. COMPLETION SUMMARY ====================
+        $this->command->info("\n==========================================");
+        $this->command->info("✅ DATABASE SEEDING COMPLETED SUCCESSFULLY!");
+        $this->command->info("==========================================\n");
+
+        $this->command->info("📊 FINAL SUMMARY:");
+        $this->command->info("   • Courses: 3 (BSIT, BEED, BSBA)");
+        $this->command->info("   • Sections: {$sectionCounter} (3 courses × 4 years × 2 sections)");
+        $this->command->info("   • Users: 1 Admin + 2 COMELEC + 50 Voters/Candidates = 53 Total");
+        $this->command->info("   • Candidates: " . count($candidateUserIds) . " (Promoted from voters)");
+        $this->command->info("   • Elections: 4 (1 CSG, 3 SBO) - Year: {$currentYear}");
+        $this->command->info("   • CSG Positions: 13");
+        $this->command->info("   • SBO Positions: 5 per course (15 total for 3 courses)");
+        $this->command->info("   • Total Positions: " . count($allPositions));
+        $this->command->info("   • Partylists: " . count($partylistsData) . " (All for year {$currentYear})");
+        $this->command->info("   • Candidates: " . count($allCandidates) . " (Approved)");
+        $this->command->info("   • Partylist Memberships: {$membershipCount}");
+        $this->command->info("   • Live Comments: {$commentCount}");
+        $this->command->info("   • Audit Logs: {$logCount}\n");
+
+        $this->command->info("📊 VOTER REGISTRATION SUMMARY:");
+        foreach ($electionIds as $electionTitle => $electionId) {
+            $count = DB::table('voter_registries')
+                ->where('election_id', $electionId)
+                ->count();
+            $this->command->info("   • {$electionTitle}: {$count} registered voters");
+        }
+        $this->command->info("");
+
+        $this->command->info("🔑 LOGIN CREDENTIALS:");
+        $this->command->info("   ┌─────────────────────────────────────────────────────────────┐");
+        $this->command->info("   │ Admin:     admin@occelection.com / admin123              │");
+        $this->command->info("   │ COMELEC:   comelec@occelection.com / comelec123          │");
+        $this->command->info("   │ Voter:     Any @occ.edu.ph email / voter123              │");
+        $this->command->info("   └─────────────────────────────────────────────────────────────┘");
+
+        $this->command->info("\n📌 NOTE:");
+        $this->command->info("   • All passwords are for demonstration purposes only.");
+        $this->command->info("   • No pre-voted data has been created.");
+        $this->command->info("   • All candidates have been pre-approved.");
+        $this->command->info("   • All voters have has_voted = false.");
+        $this->command->info("   • CSG Election: All 50 users are registered.");
+        $this->command->info("   • SBO Elections: Only users from that course are registered.");
+        $this->command->info("   • Add additional candidates through the admin panel.");
+        $this->command->info("==========================================\n");
+    }
+}
