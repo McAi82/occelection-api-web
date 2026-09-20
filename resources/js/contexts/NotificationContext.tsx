@@ -5,11 +5,11 @@ import React, {
     useState,
     useEffect,
     useCallback,
+    useRef,
 } from "react";
 import { useAuth } from "./AuthContext";
 import { notificationAPI } from "../api/notifications";
 import type { Notification } from "../api/notifications";
-import { useReverb } from "./ReverbContext";
 
 interface NotificationContextType {
     notifications: Notification[];
@@ -45,45 +45,51 @@ export const useNotifications = () => {
     return context;
 };
 
+// How often to poll when the tab is focused / hidden (milliseconds)
+const POLL_INTERVAL_MS = 10_000; // 10s
+const POLL_INTERVAL_HIDDEN_MS = 60_000; // 60s
+
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
     children,
 }) => {
     const { user, isAuthenticated } = useAuth();
-    const { isConnected, subscribeToUserChannel, unsubscribeFromChannel } =
-        useReverb();
+
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [initialFetchDone, setInitialFetchDone] = useState(false);
-    const [channel, setChannel] = useState<any | null>(null);
 
-    // ✅ Fetch notifications
+    // Track the highest notification_id we've seen so far
+    const lastSeenIdRef = useRef<number>(0);
+    const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isMountedRef = useRef(true);
+
+    // ----- Initial full fetch -----
     const fetchNotifications = useCallback(async () => {
         if (!user || !isAuthenticated) {
-            console.log("⏳ No user, skipping fetch");
             setLoading(false);
             return;
         }
 
-        console.log("📡 Fetching notifications for user:", user.user_id);
         setLoading(true);
-
         try {
             const [notifResponse, countResponse] = await Promise.all([
                 notificationAPI.getAll(),
                 notificationAPI.getUnreadCount(),
             ]);
 
-            console.log("📡 Notifications response:", notifResponse);
-            console.log("📡 Unread count response:", countResponse);
-
             const data = notifResponse.data || [];
-            console.log("📡 Extracted notifications:", data.length, "items");
             setNotifications(data);
+            setUnreadCount(countResponse.data?.unread_count || 0);
 
-            const unread = countResponse.data?.unread_count || 0;
-            console.log("📡 Unread count:", unread);
-            setUnreadCount(unread);
+            // Remember the highest ID we've seen
+            if (data.length > 0) {
+                lastSeenIdRef.current = Math.max(
+                    ...data.map((n) => n.notification_id),
+                );
+            } else {
+                lastSeenIdRef.current = 0;
+            }
 
             setInitialFetchDone(true);
         } catch (error) {
@@ -95,22 +101,85 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
         }
     }, [user, isAuthenticated]);
 
-    // ✅ Add new notification
-    const addNotification = useCallback((notification: Notification) => {
-        console.log("➕ Adding notification:", notification);
-        setNotifications((prev) => {
-            const exists = prev.some(
-                (n) => n.notification_id === notification.notification_id,
-            );
-            if (exists) return prev;
-            return [notification, ...prev];
-        });
-        setUnreadCount((prev) => prev + 1);
-    }, []);
+    // ----- Poll for new notifications since `lastSeenId` -----
+    const pollForNew = useCallback(async () => {
+        if (!user || !isAuthenticated) return;
 
-    // ✅ Mark single notification as read
+        try {
+            const response = await notificationAPI.poll(lastSeenIdRef.current);
+            const newNotifs = response.data.notifications || [];
+
+            if (newNotifs.length > 0) {
+                setNotifications((prev) => {
+                    const existingIds = new Set(
+                        prev.map((n) => n.notification_id),
+                    );
+                    const toAdd = newNotifs.filter(
+                        (n) => !existingIds.has(n.notification_id),
+                    );
+                    // Newest first
+                    return [...toAdd, ...prev];
+                });
+
+                // Bump last-seen ID
+                lastSeenIdRef.current = Math.max(
+                    lastSeenIdRef.current,
+                    response.data.latest_id,
+                );
+            }
+
+            // Always sync unread count
+            setUnreadCount(response.data.unread_count);
+        } catch (error) {
+            // Silent — don't spam console or crash on a single failure
+            console.warn("⚠️ Notification poll failed");
+        }
+    }, [user, isAuthenticated]);
+
+    // ----- Adaptive polling scheduler -----
+    useEffect(() => {
+        if (!user || !isAuthenticated) return;
+
+        isMountedRef.current = true;
+
+        const tick = async () => {
+            if (!isMountedRef.current) return;
+
+            await pollForNew();
+
+            const interval = document.hidden
+                ? POLL_INTERVAL_HIDDEN_MS
+                : POLL_INTERVAL_MS;
+
+            pollTimerRef.current = setTimeout(tick, interval);
+        };
+
+        // First tick after initial fetch
+        pollTimerRef.current = setTimeout(tick, POLL_INTERVAL_MS);
+
+        return () => {
+            isMountedRef.current = false;
+            if (pollTimerRef.current) {
+                clearTimeout(pollTimerRef.current);
+                pollTimerRef.current = null;
+            }
+        };
+    }, [user, isAuthenticated, pollForNew]);
+
+    // ----- Bootstrap on auth changes -----
+    useEffect(() => {
+        if (user && isAuthenticated) {
+            fetchNotifications();
+        } else {
+            setNotifications([]);
+            setUnreadCount(0);
+            lastSeenIdRef.current = 0;
+            setLoading(false);
+        }
+    }, [user, isAuthenticated, fetchNotifications]);
+
+    // ----- Mark single as read -----
     const markAsRead = useCallback(async (id: number) => {
-        console.log("📖 Marking notification as read:", id);
         try {
             await notificationAPI.markAsRead(id);
             setNotifications((prev) =>
@@ -125,9 +194,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
         }
     }, []);
 
-    // ✅ Mark all as read
+    // ----- Mark all as read -----
     const markAllAsRead = useCallback(async () => {
-        console.log("📖 Marking all notifications as read");
         try {
             await notificationAPI.markAllAsRead();
             setNotifications((prev) =>
@@ -140,18 +208,20 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
         }
     }, []);
 
-    // ✅ Delete notification
+    // ----- Delete one -----
     const deleteNotification = useCallback(
         async (id: number) => {
-            console.log("🗑️ Deleting notification:", id);
             try {
                 await notificationAPI.delete(id);
-                setNotifications((prev) =>
-                    prev.filter((n) => n.notification_id !== id),
-                );
+
                 const deleted = notifications.find(
                     (n) => n.notification_id === id,
                 );
+
+                setNotifications((prev) =>
+                    prev.filter((n) => n.notification_id !== id),
+                );
+
                 if (deleted && !deleted.is_read) {
                     setUnreadCount((prev) => Math.max(0, prev - 1));
                 }
@@ -163,76 +233,30 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
         [notifications],
     );
 
-    // ✅ Clear notifications
+    // ----- Manual add (used for optimistic UI updates) -----
+    const addNotification = useCallback((notification: Notification) => {
+        setNotifications((prev) => {
+            const exists = prev.some(
+                (n) => n.notification_id === notification.notification_id,
+            );
+            if (exists) return prev;
+            return [notification, ...prev];
+        });
+        setUnreadCount((prev) => prev + 1);
+        lastSeenIdRef.current = Math.max(
+            lastSeenIdRef.current,
+            notification.notification_id,
+        );
+    }, []);
+
     const clearNotifications = useCallback(() => {
-        console.log("🧹 Clearing all notifications");
         setNotifications([]);
         setUnreadCount(0);
+        lastSeenIdRef.current = 0;
         setInitialFetchDone(false);
     }, []);
 
-    // ✅ Auto-fetch on auth change
-    useEffect(() => {
-        if (user && isAuthenticated) {
-            console.log("🔐 User authenticated, fetching notifications...");
-            fetchNotifications();
-        } else {
-            console.log("🚪 User not authenticated, clearing notifications");
-            setNotifications([]);
-            setUnreadCount(0);
-            setLoading(false);
-        }
-    }, [user, isAuthenticated, fetchNotifications]);
-
-    // ✅ Subscribe to WebSocket for real-time updates
-    useEffect(() => {
-        if (!user || !isConnected || !isAuthenticated) {
-            console.log("⏳ Notification provider: Reverb not ready");
-            return;
-        }
-
-        console.log(
-            `📡 Notification provider: Subscribing to user.${user.user_id}`,
-        );
-
-        const userChannel = subscribeToUserChannel(user.user_id, (data) => {
-            console.log("🔔 New notification via WebSocket:", data);
-            if (data && data.notification) {
-                addNotification(data.notification);
-                // Show browser notification
-                if (
-                    "Notification" in window &&
-                    Notification.permission === "granted"
-                ) {
-                    try {
-                        new Notification(data.notification.title, {
-                            body: data.notification.message,
-                            icon: "/occlogo.jpg",
-                        });
-                    } catch (e) {
-                        // Silent fail
-                    }
-                }
-            }
-        });
-
-        setChannel(userChannel);
-
-        return () => {
-            if (userChannel) {
-                unsubscribeFromChannel(userChannel);
-            }
-        };
-    }, [
-        user,
-        isConnected,
-        isAuthenticated,
-        subscribeToUserChannel,
-        unsubscribeFromChannel,
-        addNotification,
-    ]);
-
-    const value = {
+    const value: NotificationContextType = {
         notifications,
         unreadCount,
         loading: loading && !initialFetchDone,

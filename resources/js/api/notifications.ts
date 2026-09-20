@@ -20,14 +20,14 @@ export interface Notification {
 }
 
 export const notificationAPI = {
-    // Get all notifications for current user
+    /**
+     * Fetch all notifications for the current user (up to 50).
+     */
     getAll: async (): Promise<{ data: Notification[] }> => {
         try {
             const response = await axios.get("/notifications");
-            console.log("📡 Notifications API response:", response.data);
-
-            // Handle different response structures
             let notifications: Notification[] = [];
+
             if (response.data) {
                 if (Array.isArray(response.data)) {
                     notifications = response.data;
@@ -52,11 +52,14 @@ export const notificationAPI = {
         }
     },
 
-    // Get unread count
-    getUnreadCount: async (): Promise<{ data: { unread_count: number } }> => {
+    /**
+     * Get the number of unread notifications.
+     */
+    getUnreadCount: async (): Promise<{
+        data: { unread_count: number };
+    }> => {
         try {
             const response = await axios.get("/notifications/unread-count");
-            console.log("📡 Unread count API response:", response.data);
 
             let unreadCount = 0;
             if (response.data) {
@@ -76,15 +79,47 @@ export const notificationAPI = {
         }
     },
 
-    // Mark single notification as read
+    /**
+     * Poll for notifications newer than `since_id`.
+     * Returns new notifications, current unread count, and latest ID.
+     */
+    poll: async (
+        sinceId: number = 0,
+    ): Promise<{
+        data: {
+            notifications: Notification[];
+            unread_count: number;
+            latest_id: number;
+        };
+    }> => {
+        const response = await axios.get("/notifications/poll", {
+            params: { since_id: sinceId },
+        });
+
+        return {
+            data: {
+                notifications: response.data?.notifications ?? [],
+                unread_count: response.data?.unread_count ?? 0,
+                latest_id: response.data?.latest_id ?? sinceId,
+            },
+        };
+    },
+
+    /**
+     * Mark a single notification as read.
+     */
     markAsRead: (id: number): Promise<{ data: { success: boolean } }> =>
         axios.put(`/notifications/${id}/read`),
 
-    // Mark all notifications as read
+    /**
+     * Mark all notifications as read.
+     */
     markAllAsRead: (): Promise<{ data: { success: boolean } }> =>
         axios.put("/notifications/mark-all-read"),
 
-    // Delete notification
+    /**
+     * Delete a single notification.
+     */
     delete: (id: number): Promise<{ data: { success: boolean } }> =>
         axios.delete(`/notifications/${id}`),
 };

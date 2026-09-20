@@ -14,11 +14,9 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "guzzlehttp/guzzle": "^7.10",
         "laravel/framework": "^13.0",
-        "laravel/reverb": "*",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "maatwebsite/excel": "^3.1",
-        "pusher/pusher-php-server": "^7.2",
         "spatie/laravel-activitylog": "^4.12"
     },
     "require-dev": {

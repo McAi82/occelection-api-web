@@ -398,7 +398,7 @@ const ManageCandidates: React.FC = () => {
     const getImageUrl = (path?: string) => {
         if (!path) return null;
         if (path.startsWith("http")) return path;
-        return `https://occelection-api-web-production.up.railway.app${path}`;
+        return `https://occelection-api-web-production.up.railway.app/${path}`;
     };
 
     const candidatesByPosition = candidates.reduce(

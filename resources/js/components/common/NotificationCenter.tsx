@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { useReverb } from "../../contexts/ReverbContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import {
     Bell,
@@ -64,9 +63,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
 }) => {
     const navigate = useNavigate();
     const { user } = useAuth();
-    const { echo, isConnected } = useReverb();
 
-    // ✅ Use NotificationContext
+    // Polling-based notifications — no WebSocket needed
     const {
         notifications,
         unreadCount,
@@ -79,13 +77,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
     const [isOpen, setIsOpen] = useState(false);
     const [actionLoading, setActionLoading] = useState<number | null>(null);
 
-    // ✅ Refs for caching
+    // Cache management to avoid hammering the endpoint on rapid open/close
     const hasLoadedRef = useRef(false);
     const lastFetchTimeRef = useRef<number>(0);
     const CACHE_DURATION = 30000;
     const isFetchingRef = useRef(false);
 
-    // ✅ Fetch notifications with caching
     const fetchNotificationsWithCache = useCallback(
         async (force = false) => {
             const now = Date.now();
@@ -94,14 +91,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 hasLoadedRef.current &&
                 now - lastFetchTimeRef.current < CACHE_DURATION
             ) {
-                console.log("📡 Using cached notifications");
                 return;
             }
-
-            if (isFetchingRef.current) {
-                console.log("⏳ Already fetching, skipping...");
-                return;
-            }
+            if (isFetchingRef.current) return;
 
             isFetchingRef.current = true;
             await fetchNotifications();
@@ -112,28 +104,25 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
         [fetchNotifications],
     );
 
-    // ✅ Refresh when dropdown opens
+    // Refresh when dropdown opens (if cache expired)
     useEffect(() => {
         if (isOpen) {
             const now = Date.now();
             const cacheExpired =
                 now - lastFetchTimeRef.current >= CACHE_DURATION;
-
             if (cacheExpired || !hasLoadedRef.current) {
-                console.log("📡 Cache expired, fetching fresh data...");
                 fetchNotificationsWithCache(true);
             }
         }
     }, [isOpen, fetchNotificationsWithCache]);
 
-    // ✅ Initial load
+    // Initial load
     useEffect(() => {
         if (user) {
             fetchNotificationsWithCache(true);
         }
     }, [user]);
 
-    // ✅ Mark notification as read
     const handleMarkAsRead = async (notificationId: number) => {
         setActionLoading(notificationId);
         try {
@@ -146,7 +135,6 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
         }
     };
 
-    // ✅ Mark all as read
     const handleMarkAllAsRead = async () => {
         try {
             await markAllAsRead();
@@ -156,14 +144,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
         }
     };
 
-    // ✅ Request notification permission
     const requestNotificationPermission = useCallback(() => {
         if ("Notification" in window && Notification.permission === "default") {
             Notification.requestPermission();
         }
     }, []);
 
-    // ✅ Format time
     const formatTime = (dateString: string) => {
         try {
             return formatDistanceToNow(new Date(dateString), {
@@ -174,7 +160,6 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
         }
     };
 
-    // ✅ Get visible notifications (only 10 for dropdown)
     const visibleNotifications = notifications.slice(0, 10);
 
     return (
@@ -192,9 +177,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
                             {unreadCount > 9 ? "9+" : unreadCount}
                         </span>
                     )}
-                    {isConnected && (
-                        <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white animate-pulse"></span>
-                    )}
+                    {/* Polling indicator instead of WebSocket connection dot */}
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white animate-pulse"></span>
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -213,19 +197,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
                             </div>
                             <div className="flex items-center gap-2 mt-1">
                                 <p className="text-xs text-blue-100">
-                                    {isConnected ? (
-                                        <>
-                                            <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full mr-1 animate-pulse"></span>
-                                            {unreadCount > 0
-                                                ? `${unreadCount} unread`
-                                                : "All caught up!"}
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="inline-block w-1.5 h-1.5 bg-yellow-400 rounded-full mr-1"></span>
-                                            Reconnecting...
-                                        </>
-                                    )}
+                                    <span className="inline-block w-1.5 h-1.5 bg-blue-300 rounded-full mr-1 animate-pulse"></span>
+                                    {unreadCount > 0
+                                        ? `${unreadCount} unread`
+                                        : "All caught up!"}
                                 </p>
                                 <span className="text-blue-200 text-[10px]">
                                     •
@@ -249,7 +224,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     </div>
                 </div>
 
-                {/* Notification List */}
+                {/* Notification list */}
                 {loading && !hasLoadedRef.current ? (
                     <div className="flex items-center justify-center py-12">
                         <div className="text-center">
@@ -375,7 +350,6 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
                 <DropdownMenuSeparator />
 
-                {/* Footer */}
                 {notifications.length > 0 && (
                     <div className="p-2 bg-gray-50/80">
                         <Button

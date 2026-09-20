@@ -356,15 +356,6 @@ class MobileVoteController extends Controller
                 $candidate = Candidate::find($voteData['candidate_id']);
                 $voteCount = Vote::where('candidate_id', $voteData['candidate_id'])->count();
                 $totalVotes = Vote::where('election_id', $electionId)->count();
-
-                broadcast(new VoteCast(
-                    $electionId,
-                    $voteData['position_id'],
-                    $voteData['candidate_id'],
-                    $candidate->user->first_name . ' ' . $candidate->user->last_name,
-                    $voteCount,
-                    $totalVotes
-                ));
             }
 
             // ✅ Fire TurnoutUpdated event
@@ -373,8 +364,6 @@ class MobileVoteController extends Controller
                 ->where('has_voted', true)
                 ->count();
             $percentage = $totalVoters > 0 ? round(($votedCount / $totalVoters) * 100, 2) : 0;
-
-            broadcast(new TurnoutUpdated($electionId, $votedCount, $totalVoters, $percentage));
 
             // ✅ Send vote confirmation notification
             $notificationService = app(NotificationService::class);

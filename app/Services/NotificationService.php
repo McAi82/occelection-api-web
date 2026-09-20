@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\VoterRegistry;
-use App\Events\NewNotification;
 use Illuminate\Support\Facades\Log;
 
 class NotificationService
@@ -31,8 +30,6 @@ class NotificationService
                 'data' => $data,
                 'is_read' => false,
             ]);
-
-            broadcast(new NewNotification($notification, $userId));
 
             Log::info("Notification sent to user {$userId}: {$title}");
 

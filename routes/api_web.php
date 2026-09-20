@@ -23,7 +23,6 @@ use App\Http\Controllers\Api\Web\Campaign\CampaignScheduleRequestController;
 use App\Http\Controllers\Api\Web\NotificationController;
 use App\Http\Controllers\Api\Web\Partylist\PartylistRequestController;
 
-use App\Events\NewNotification;
 use App\Models\Notification;
 use App\Models\User;
 /*
@@ -53,9 +52,6 @@ Route::prefix('web')->group(function () {
             'type' => 'system',
             'is_read' => false,
         ]);
-
-        // ✅ Broadcast the event
-        broadcast(new NewNotification($notification, $user->user_id));
 
         return response()->json([
             'success' => true,
@@ -96,6 +92,8 @@ Route::prefix('web')->group(function () {
 
     // ==================== PROTECTED ROUTES ====================
     Route::middleware(['auth:sanctum'])->group(function () {
+
+    Route::get('/notifications/poll', [NotificationController::class, 'poll']);
 
         // ==================== CANDIDACY APPLICATION ROUTES (Public) ====================
         Route::prefix('candidacy')->group(function () {
